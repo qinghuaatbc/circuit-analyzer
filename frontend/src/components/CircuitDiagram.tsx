@@ -191,14 +191,119 @@ function fmtVal(v: number): string {
 }
 
 function gridLayout(elements: Element[]): { nodes: GridNode[]; cols: number; rows: number } {
-  // Build node-to-elements mapping
-  const nodeEls = new Map<number, Element[]>()
-  for (const el of elements) {
-    if (!nodeEls.has(el.pos)) nodeEls.set(el.pos, [])
-    if (!nodeEls.has(el.neg)) nodeEls.set(el.neg, [])
-    nodeEls.get(el.pos)!.push(el)
-    nodeEls.get(el.neg)!.push(el)
+  const grid = new Map<number, { col: number; row: number }>()
+  
+  // Ground fixed at bottom-left
+  grid.set(0, { col: 0, row: 0 })
+
+  // Find voltage source - its positive node goes at top-left
+  let nextCol = 1
+  let nextRow = 1
+  const placed = new Set<number>([0])
+
+  // Separate voltage sources from other elements
+  const vSources = elements.filter(e => e.type === 'V' || e.type === 'VAC')
+  const passives = elements.filter(e => e.type !== 'V' && e.type !== 'VAC')
+
+  // Place voltage sources first
+  for (const vs of vSources) {
+    const posNode = vs.pos
+    const negNode = vs.neg
+
+    if (!placed.has(posNode) && posNode !== 0) {
+      grid.set(posNode, { col: nextCol, row: 1 })
+      placed.add(posNode)
+      nextCol++
+    }
+    if (!placed.has(negNode) && negNode !== 0) {
+      grid.set(negNode, { col: nextCol, row: 1 })
+      placed.add(negNode)
+      nextCol++
+    }
   }
+  if (nextCol === 1) nextCol = 2 // at least one column for source
+
+  // Place passive elements, assigning new columns as needed
+  for (const el of passives) {
+    const pPos = grid.get(el.pos)
+    const pNeg = grid.get(el.neg)
+
+    if (!pPos && !pNeg) {
+      // Both unplaced: assign new column
+      grid.set(el.pos, { col: nextCol, row: nextRow })
+      placed.add(el.pos)
+      nextRow++
+      grid.set(el.neg, { col: nextCol, row: nextRow })
+      placed.add(el.neg)
+      nextRow++
+      nextCol++
+    } else if (!pPos) {
+      // pos unplaced: place it in a new column at the same row as neg
+      const r = pNeg ? pNeg.row : nextRow
+      grid.set(el.pos, { col: nextCol, row: r })
+      placed.add(el.pos)
+      nextCol++
+      nextRow = Math.max(nextRow, r + 1)
+    } else if (!pNeg) {
+      // neg unplaced: place it in a new column
+      const r = pPos ? pPos.row : nextRow
+      grid.set(el.neg, { col: nextCol, row: r })
+      placed.add(el.neg)
+      nextCol++
+      nextRow = Math.max(nextRow, r + 1)
+    }
+    // else: both already placed, skip
+  }
+
+  // Any remaining unplaced nodes
+  for (const el of elements) {
+    if (!placed.has(el.pos) && el.pos !== 0) {
+      grid.set(el.pos, { col: nextCol, row: nextRow })
+      placed.add(el.pos); nextRow++
+    }
+    if (!placed.has(el.neg) && el.neg !== 0) {
+      grid.set(el.neg, { col: nextCol, row: nextRow })
+      placed.add(el.neg); nextRow++
+    }
+  }
+
+  // Build result, normalize rows
+  const entries = Array.from(grid.entries())
+  const maxCol = Math.max(0, ...entries.map(([_, p]) => p.col))
+  
+  // Group by column and assign rows 0,2,4... for even spacing
+  const byCol = new Map<number, { id: number; col: number }[]>()
+  for (const [id, p] of entries) {
+    if (!byCol.has(p.col)) byCol.set(p.col, [])
+    byCol.get(p.col)!.push({ id, col: p.col })
+  }
+
+  const result: GridNode[] = []
+  for (const [c, items] of byCol) {
+    items.sort((a, b) => a.id - b.id)
+    if (c === 0 && items.some(it => it.id === 0)) {
+      // Ground column: ground at bottom
+      for (const item of items) {
+        if (item.id === 0) result.push({ id: 0, col: 0, row: 0, x: CELL, y: 0 })
+      }
+      continue
+    }
+    // Spread items in this column: first item row=1, second row=3, etc.
+    for (let i = 0; i < items.length; i++) {
+      const r = i * 2 + 1
+      result.push({
+        id: items[i].id,
+        col: c,
+        row: r,
+        x: (c + 1) * CELL,
+        y: (r + 1) * CELL,
+      })
+    }
+  }
+
+  const maxRow = Math.max(0, ...result.map(n => n.row))
+  return { nodes: result.sort((a, b) => a.id - b.id), cols: maxCol + 1, rows: maxRow + 2 }
+}
 
   // BFS to assign grid positions
   const nodeSet = new Set<number>()
