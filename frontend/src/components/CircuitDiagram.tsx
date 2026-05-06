@@ -6,8 +6,31 @@ const PAD = 40      // outer padding
 const COL_W = 90    // horizontal spacing between top-rail nodes
 const ROW_H = 90    // height of the circuit loop
 
-export default function CircuitDiagram({ netlist, voltages }: { netlist: string; voltages?: number[] }) {
+interface Colors {
+  bg: string; wire: string; bus: string; gnd: string
+  nodeRing: string; nodeFill: string; nodeText: string
+  gndRing: string; gndFill: string; gndText: string
+  voltage: string; label: string; dot: string
+}
+
+function themeColors(theme?: string): Colors {
+  if (theme === 'light') return {
+    bg: '#ffffff', wire: '#24292f', bus: '#8c959f',
+    gnd: '#24292f', nodeRing: '#0969da', nodeFill: '#ddf4ff',
+    nodeText: '#0969da', gndRing: '#8c959f', gndFill: '#f0f2f5', gndText: '#8c959f',
+    voltage: '#1a7f37', label: '#57606a', dot: '#0969da',
+  }
+  return {
+    bg: '#161b22', wire: '#8b949e', bus: '#444c56',
+    gnd: '#e6edf3', nodeRing: '#58a6ff', nodeFill: '#1f3a5f',
+    nodeText: '#58a6ff', gndRing: '#484f58', gndFill: '#1a2a1a', gndText: '#484f58',
+    voltage: '#7ee787', label: '#8b949e', dot: '#58a6ff',
+  }
+}
+
+export default function CircuitDiagram({ netlist, voltages, theme }: { netlist: string; voltages?: number[]; theme?: string }) {
   const elements = parseNetlist(netlist)
+  const c = themeColors(theme)
   if (elements.length === 0) return null
 
   // Lay out nodes: all non-ground nodes on top rail, ground at bottom
@@ -47,10 +70,10 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
   return (
     <div className="circuit-diagram">
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
-        style={{ background: '#0d1117', display: 'block' }}>
+        style={{ background: c.bg, display: 'block' }}>
 
         {/* Ground bus */}
-        <line x1={leftX} y1={botY} x2={rightX} y2={botY} stroke="#444c56" strokeWidth={2} strokeDasharray="4,3" />
+        <line x1={leftX} y1={botY} x2={rightX} y2={botY} stroke={c.bus} strokeWidth={2} strokeDasharray="4,3" />
 
         {elements.map((el, i) => {
           const p1 = posOf(el.pos, el.neg)
@@ -63,11 +86,11 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
             const cy = (y1 + y2) / 2
             return (
               <g key={i}>
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#30363d" strokeWidth={2} />
-                {drawComponent(el, x1, cy, false)}
-                {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1)}
-                {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2)}
-                {label(el, x1 + 18, cy)}
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={c.wire} strokeWidth={2} />
+                {drawComponent(el, x1, cy, false, false, c)}
+                {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1, c)}
+                {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2, c)}
+                {label(el, x1 + 18, cy, c)}
               </g>
             )
           }
@@ -76,11 +99,11 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
             const cx = (x1 + x2) / 2
             return (
               <g key={i}>
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#30363d" strokeWidth={2} />
-                {drawComponent(el, cx, y1, true)}
-                {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1)}
-                {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2)}
-                {label(el, cx, y1 - 4)}
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={c.wire} strokeWidth={2} />
+                {drawComponent(el, cx, y1, true, false, c)}
+                {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1, c)}
+                {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2, c)}
+                {label(el, cx, y1 - 4, c)}
               </g>
             )
           }
@@ -91,14 +114,14 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
           const hCx = (x1 + mx) / 2, vCy = (my + y2) / 2
           return (
             <g key={i}>
-              <line x1={x1} y1={y1} x2={mx} y2={my} stroke="#30363d" strokeWidth={2} />
-              <line x1={mx} y1={my} x2={x2} y2={y2} stroke="#30363d" strokeWidth={2} />
+              <line x1={x1} y1={y1} x2={mx} y2={my} stroke={c.wire} strokeWidth={2} />
+              <line x1={mx} y1={my} x2={x2} y2={y2} stroke={c.wire} strokeWidth={2} />
               {dx >= dy
-                ? drawComponent(el, hCx, y1, true)
-                : drawComponent(el, x2, vCy, false)}
-              {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1)}
-              {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2)}
-              {label(el, hCx, y1 - 4)}
+                ? drawComponent(el, hCx, y1, true, false, c)
+                : drawComponent(el, x2, vCy, false, false, c)}
+              {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1, c)}
+              {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2, c)}
+              {label(el, hCx, y1 - 4, c)}
             </g>
           )
         })}
@@ -112,9 +135,41 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
           }
           return Array.from(gndXs).map(gx => (
             <g key={`gnd-${gx}`}>
-              <line x1={gx-14} y1={botY+2} x2={gx+14} y2={botY+2} stroke="#e6edf3" strokeWidth={2.5} />
-              <line x1={gx-9} y1={botY+8} x2={gx+9} y2={botY+8} stroke="#e6edf3" strokeWidth={2} />
-              <line x1={gx-4} y1={botY+14} x2={gx+4} y2={botY+14} stroke="#e6edf3" strokeWidth={1.5} />
+              <line x1={gx-14} y1={botY+2} x2={gx+14} y2={botY+2} stroke={c.gnd} strokeWidth={2.5} />
+              <line x1={gx-9} y1={botY+8} x2={gx+9} y2={botY+8} stroke={c.gnd} strokeWidth={2} />
+              <line x1={gx-4} y1={botY+14} x2={gx+4} y2={botY+14} stroke={c.gnd} strokeWidth={1.5} />
+            </g>
+          ))
+        })()}
+
+        {/* Node number badges on top rail */}
+        {topNodes.map(id => {
+          const x = topX.get(id) ?? 0
+          return (
+            <g key={`n${id}`}>
+              <circle cx={x} cy={topY} r={10} fill={c.nodeFill} stroke={c.nodeRing} strokeWidth={1.5} />
+              <text x={x} y={topY} textAnchor="middle" dominantBaseline="central"
+                fill={c.nodeText} fontSize={10} fontFamily="monospace" fontWeight="700">
+                {id}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* Ground node badge */}
+        {(() => {
+          const gndXs = new Set<number>()
+          for (const el of elements) {
+            if (el.pos === 0) gndXs.add(topX.get(el.neg) ?? leftX)
+            if (el.neg === 0) gndXs.add(topX.get(el.pos) ?? leftX)
+          }
+          return Array.from(gndXs).map(gx => (
+            <g key={`n0-${gx}`}>
+              <circle cx={gx} cy={botY} r={10} fill={c.gndFill} stroke={c.gndRing} strokeWidth={1.5} />
+              <text x={gx} y={botY} textAnchor="middle" dominantBaseline="central"
+                fill={c.gndText} fontSize={10} fontFamily="monospace" fontWeight="700">
+                0
+              </text>
             </g>
           ))
         })()}
@@ -124,8 +179,8 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
           const x = topX.get(id) ?? 0
           const v = voltages[id - 1]
           return v !== undefined ? (
-            <text key={`v${id}`} x={x} y={topY - 10}
-              textAnchor="middle" fill="#7ee787" fontSize={10} fontFamily="monospace" fontWeight="600">
+            <text key={`v${id}`} x={x} y={topY - 16}
+              textAnchor="middle" fill={c.voltage} fontSize={10} fontFamily="monospace" fontWeight="600">
               {v.toFixed(2)}V
             </text>
           ) : null
@@ -135,15 +190,18 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
   )
 }
 
-function drawComponent(el: Element, cx: number, cy: number, horizontal: boolean, angled = false) {
-  const color = el.type === 'R' ? '#e6edf3' : el.type === 'C' ? '#58a6ff' : el.type === 'L' ? '#7ee787' : '#ffa657'
+function drawComponent(el: Element, cx: number, cy: number, horizontal: boolean, angled = false, c?: Colors) {
+  const componentColor = el.type === 'R'
+    ? (c ? c.wire : '#e6edf3')
+    : el.type === 'C' ? '#58a6ff'
+    : el.type === 'L' ? '#7ee787'
+    : '#ffa657'
   if (horizontal || angled) {
-    return drawInline(el, cx, cy, color)
+    return drawInline(el, cx, cy, componentColor)
   }
-  // vertical: rotate 90° around center
   return (
     <g transform={`rotate(90, ${cx}, ${cy})`}>
-      {drawInline(el, cx, cy, color)}
+      {drawInline(el, cx, cy, componentColor)}
     </g>
   )
 }
@@ -205,16 +263,16 @@ function drawInline(el: Element, cx: number, cy: number, color: string) {
   }
 }
 
-function label(el: Element, x: number, y: number) {
+function label(el: Element, x: number, y: number, c?: Colors) {
   return (
-    <text x={x} y={y - 6} textAnchor="middle" fill="#8b949e" fontSize={9} fontFamily="monospace">
+    <text x={x} y={y - 6} textAnchor="middle" fill={c?.label ?? '#8b949e'} fontSize={9} fontFamily="monospace">
       {el.name} {fmtVal(el.value)}
     </text>
   )
 }
 
-function dot(x: number, y: number) {
-  return <circle cx={x} cy={y} r={3} fill="#58a6ff" stroke="#0d1117" strokeWidth={1.5} />
+function dot(x: number, y: number, c?: Colors) {
+  return <circle cx={x} cy={y} r={3} fill={c?.dot ?? '#58a6ff'} stroke={c?.bg ?? '#0d1117'} strokeWidth={1.5} />
 }
 
 function parseNetlist(netlist: string): Element[] {

@@ -166,26 +166,72 @@ func HandleNetlistExamples(w http.ResponseWriter, r *http.Request) {
 	}
 	examples := []map[string]string{
 		{
-			"name": "Voltage Divider",
-			"netlist": `R1 1 0 1k
-R2 1 2 2k
-V1 2 0 5`,
+			"name": "分压器 Voltage Divider",
+			"netlist": `R1 1 2 1k
+R2 2 0 2k
+V1 1 0 5`,
 		},
 		{
-			"name": "RC Low-Pass Filter",
+			"name": "串联电阻 Series Resistors",
+			"netlist": `R1 1 2 100
+R2 2 3 200
+R3 3 0 300
+V1 1 0 12`,
+		},
+		{
+			"name": "并联电阻 Parallel Resistors",
+			"netlist": `R1 1 0 100
+R2 1 0 200
+R3 1 0 300
+V1 1 0 5`,
+		},
+		{
+			"name": "内阻电池 Battery with Internal Resistance",
+			"netlist": `Rint 1 2 0.5
+Rload 2 0 10
+V1 1 0 9`,
+		},
+		{
+			"name": "RC 低通滤波 RC Low-Pass Filter",
 			"netlist": `R1 1 2 1k
 C1 2 0 1u
 VAC1 1 0 1`,
 		},
 		{
-			"name": "RLC Circuit",
+			"name": "RC 高通滤波 RC High-Pass Filter",
+			"netlist": `C1 1 2 1u
+R1 2 0 1k
+VAC1 1 0 1`,
+		},
+		{
+			"name": "RL 低通滤波 RL Low-Pass Filter",
 			"netlist": `R1 1 2 100
+L1 2 0 10m
+VAC1 1 0 1`,
+		},
+		{
+			"name": "串联 RLC Series RLC",
+			"netlist": `R1 1 2 10
 L1 2 3 10m
 C1 3 0 1u
 VAC1 1 0 1`,
 		},
 		{
-			"name": "Wheatstone Bridge",
+			"name": "并联 RLC Parallel RLC",
+			"netlist": `R1 1 0 1k
+L1 1 0 10m
+C1 1 0 1u
+VAC1 1 0 1`,
+		},
+		{
+			"name": "LC 谐振 LC Resonance",
+			"netlist": `L1 1 2 1m
+C1 2 0 1u
+R1 1 0 10k
+VAC1 1 0 1`,
+		},
+		{
+			"name": "惠斯通电桥 Wheatstone Bridge",
 			"netlist": `R1 1 2 100
 R2 2 0 200
 R3 1 3 150
@@ -194,11 +240,36 @@ R5 2 3 250
 V1 1 0 12`,
 		},
 		{
-			"name": "Current Divider",
+			"name": "分流器 Current Divider",
 			"netlist": `R1 1 0 100
 R2 1 0 200
 R3 1 0 300
 I1 0 1 1`,
+		},
+		{
+			"name": "T 型衰减器 T-Pad Attenuator",
+			"netlist": `R1 1 2 100
+R2 2 3 100
+R3 2 0 200
+Rload 3 0 600
+V1 1 0 1`,
+		},
+		{
+			"name": "π 型衰减器 Pi-Pad Attenuator",
+			"netlist": `R1 1 0 300
+R2 1 2 100
+R3 2 0 300
+Rload 2 0 600
+V1 1 0 1`,
+		},
+		{
+			"name": "二阶低通 2nd-Order Low-Pass",
+			"netlist": `R1 1 2 1k
+C1 2 0 10n
+L1 2 3 10m
+C2 3 0 10n
+Rload 3 0 1k
+VAC1 1 0 1`,
 		},
 	}
 	w.Header().Set("Content-Type", "application/json")
