@@ -2,72 +2,129 @@ interface Element {
   type: string; name: string; pos: number; neg: number; value: number
 }
 
-interface GridNode { id: number; col: number; row: number; x: number; y: number }
-
-const CELL = 44 // grid cell size in px
+const PAD = 40      // outer padding
+const COL_W = 90    // horizontal spacing between top-rail nodes
+const ROW_H = 90    // height of the circuit loop
 
 export default function CircuitDiagram({ netlist, voltages }: { netlist: string; voltages?: number[] }) {
   const elements = parseNetlist(netlist)
   if (elements.length === 0) return null
 
-  const { nodes, cols, rows } = gridLayout(elements)
-  const W = (cols + 1) * CELL
-  const H = (rows + 2) * CELL
+  // Lay out nodes: all non-ground nodes on top rail, ground at bottom
+  const allNodeIds = new Set<number>()
+  for (const el of elements) { allNodeIds.add(el.pos); allNodeIds.add(el.neg) }
+  const topNodes = Array.from(allNodeIds).filter(id => id !== 0).sort((a, b) => a - b)
 
-  const nodePos = (id: number) => nodes.find(n => n.id === id)
+  // x positions for top-rail nodes, leftmost at PAD+COL_W (leave room for left-side source)
+  const topX = new Map<number, number>()
+  topNodes.forEach((id, i) => topX.set(id, PAD + COL_W * (i + 1)))
+
+  const topY = PAD
+  const botY = PAD + ROW_H
+  const leftX = PAD
+  const rightX = PAD + COL_W * (topNodes.length + 1)
+
+  // For elements touching ground: ground end sits directly below the non-ground node.
+  // This makes vertical components (V, R to ground) draw straight down.
+  const posOf = (id: number, otherId?: number): { x: number; y: number } => {
+    if (id === 0) {
+      const otherX = otherId !== undefined ? (topX.get(otherId) ?? leftX) : leftX
+      return { x: otherX, y: botY }
+    }
+    return { x: topX.get(id) ?? leftX, y: topY }
+  }
+
+  // Count how many elements connect to each node for junction dots
+  const nodeRefCount = new Map<number, number>()
+  for (const el of elements) {
+    nodeRefCount.set(el.pos, (nodeRefCount.get(el.pos) ?? 0) + 1)
+    nodeRefCount.set(el.neg, (nodeRefCount.get(el.neg) ?? 0) + 1)
+  }
+
+  const W = rightX + PAD
+  const H = botY + PAD + 20
 
   return (
     <div className="circuit-diagram">
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}
         style={{ background: '#0d1117', display: 'block' }}>
-        
+
+        {/* Ground bus */}
+        <line x1={leftX} y1={botY} x2={rightX} y2={botY} stroke="#444c56" strokeWidth={2} strokeDasharray="4,3" />
+
         {elements.map((el, i) => {
-          const p1 = nodePos(el.pos)
-          const p2 = nodePos(el.neg)
-          if (!p1 || !p2) return null
-
-          const isHorizontal = p1.row === p2.row
-          const isVertical = p1.col === p2.col
+          const p1 = posOf(el.pos, el.neg)
+          const p2 = posOf(el.neg, el.pos)
           const x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y
+          const isVertical = x1 === x2
+          const isHorizontal = y1 === y2
 
-          if (!isHorizontal && !isVertical) {
-            // L-shaped routing: horizontal then vertical
-            const mx = x2, my = y1
+          if (isVertical) {
+            const cy = (y1 + y2) / 2
             return (
               <g key={i}>
-                <line x1={x1} y1={y1} x2={mx} y2={my} stroke="#30363d" strokeWidth={2} />
-                <line x1={mx} y1={my} x2={x2} y2={y2} stroke="#30363d" strokeWidth={2} />
-                {drawComponent(el, mx, my, isVertical, true)}
-                {dot(x1, y1)}{dot(x2, y2)}
-                {label(el, (x1+x2)/2, (y1+y2)/2)}
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#30363d" strokeWidth={2} />
+                {drawComponent(el, x1, cy, false)}
+                {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1)}
+                {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2)}
+                {label(el, x1 + 18, cy)}
               </g>
             )
           }
 
+          if (isHorizontal) {
+            const cx = (x1 + x2) / 2
+            return (
+              <g key={i}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#30363d" strokeWidth={2} />
+                {drawComponent(el, cx, y1, true)}
+                {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1)}
+                {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2)}
+                {label(el, cx, y1 - 4)}
+              </g>
+            )
+          }
+
+          // L-shaped routing for diagonal connections
+          const dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1)
+          const mx = x2, my = y1
+          const hCx = (x1 + mx) / 2, vCy = (my + y2) / 2
           return (
             <g key={i}>
-              <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#30363d" strokeWidth={2} />
-              {drawComponent(el, (x1+x2)/2, (y1+y2)/2, isHorizontal)}
-              {dot(x1, y1)}{dot(x2, y2)}
-              {label(el, (x1+x2)/2, (y1+y2)/2)}
+              <line x1={x1} y1={y1} x2={mx} y2={my} stroke="#30363d" strokeWidth={2} />
+              <line x1={mx} y1={my} x2={x2} y2={y2} stroke="#30363d" strokeWidth={2} />
+              {dx >= dy
+                ? drawComponent(el, hCx, y1, true)
+                : drawComponent(el, x2, vCy, false)}
+              {(nodeRefCount.get(el.pos) ?? 0) >= 3 && dot(x1, y1)}
+              {(nodeRefCount.get(el.neg) ?? 0) >= 3 && dot(x2, y2)}
+              {label(el, hCx, y1 - 4)}
             </g>
           )
         })}
 
-        {/* Ground symbol */}
-        {nodes.filter(n => n.id === 0).map(n => (
-          <g key="gnd">
-            <line x1={n.x-16} y1={n.y} x2={n.x+16} y2={n.y} stroke="#e6edf3" strokeWidth={2.5} />
-            <line x1={n.x-10} y1={n.y+6} x2={n.x+10} y2={n.y+6} stroke="#e6edf3" strokeWidth={2} />
-            <line x1={n.x-5} y1={n.y+12} x2={n.x+5} y2={n.y+12} stroke="#e6edf3" strokeWidth={1.5} />
-          </g>
-        ))}
+        {/* Ground symbols below each node that connects to ground */}
+        {(() => {
+          const gndXs = new Set<number>()
+          for (const el of elements) {
+            if (el.pos === 0) gndXs.add(topX.get(el.neg) ?? leftX)
+            if (el.neg === 0) gndXs.add(topX.get(el.pos) ?? leftX)
+          }
+          return Array.from(gndXs).map(gx => (
+            <g key={`gnd-${gx}`}>
+              <line x1={gx-14} y1={botY+2} x2={gx+14} y2={botY+2} stroke="#e6edf3" strokeWidth={2.5} />
+              <line x1={gx-9} y1={botY+8} x2={gx+9} y2={botY+8} stroke="#e6edf3" strokeWidth={2} />
+              <line x1={gx-4} y1={botY+14} x2={gx+4} y2={botY+14} stroke="#e6edf3" strokeWidth={1.5} />
+            </g>
+          ))
+        })()}
 
-        {/* Voltage labels */}
-        {voltages && nodes.filter(n => n.id > 0).map(n => {
-          const v = voltages[n.id - 1]
+        {/* Node voltage labels */}
+        {voltages && topNodes.map(id => {
+          const x = topX.get(id) ?? 0
+          const v = voltages[id - 1]
           return v !== undefined ? (
-            <text key={`v${n.id}`} x={n.x} y={n.y - 12}
+            <text key={`v${id}`} x={x} y={topY - 10}
               textAnchor="middle" fill="#7ee787" fontSize={10} fontFamily="monospace" fontWeight="600">
               {v.toFixed(2)}V
             </text>
@@ -80,14 +137,15 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
 
 function drawComponent(el: Element, cx: number, cy: number, horizontal: boolean, angled = false) {
   const color = el.type === 'R' ? '#e6edf3' : el.type === 'C' ? '#58a6ff' : el.type === 'L' ? '#7ee787' : '#ffa657'
-  const sl = horizontal ? 1 : 0 // swap x/y sense
-
-  if (angled) {
-    // For L-shaped routing, draw component rotated based on orientation
+  if (horizontal || angled) {
     return drawInline(el, cx, cy, color)
   }
-
-  return drawInline(el, cx, cy, color)
+  // vertical: rotate 90° around center
+  return (
+    <g transform={`rotate(90, ${cx}, ${cy})`}>
+      {drawInline(el, cx, cy, color)}
+    </g>
+  )
 }
 
 function drawInline(el: Element, cx: number, cy: number, color: string) {
@@ -149,7 +207,7 @@ function drawInline(el: Element, cx: number, cy: number, color: string) {
 
 function label(el: Element, x: number, y: number) {
   return (
-    <text x={x} y={y - 16} textAnchor="middle" fill="#8b949e" fontSize={9} fontFamily="monospace">
+    <text x={x} y={y - 6} textAnchor="middle" fill="#8b949e" fontSize={9} fontFamily="monospace">
       {el.name} {fmtVal(el.value)}
     </text>
   )
@@ -190,79 +248,3 @@ function fmtVal(v: number): string {
   return v.toExponential(0)
 }
 
-function gridLayout(elements: Element[]): { nodes: GridNode[]; cols: number; rows: number } {
-  const grid = new Map<number, { col: number; row: number }>()
-  
-  grid.set(0, { col: 0, row: 0 })
-
-  let nextCol = 1
-  let nextRow = 1
-  const placed = new Set<number>([0])
-
-  const vSources = elements.filter(e => e.type === 'V' || e.type === 'VAC')
-  const passives = elements.filter(e => e.type !== 'V' && e.type !== 'VAC')
-
-  for (const vs of vSources) {
-    if (!placed.has(vs.pos) && vs.pos !== 0) {
-      grid.set(vs.pos, { col: nextCol, row: 1 }); placed.add(vs.pos); nextCol++
-    }
-    if (!placed.has(vs.neg) && vs.neg !== 0) {
-      grid.set(vs.neg, { col: nextCol, row: 1 }); placed.add(vs.neg); nextCol++
-    }
-  }
-  if (nextCol === 1) nextCol = 2
-
-  for (const el of passives) {
-    const pPos = grid.get(el.pos)
-    const pNeg = grid.get(el.neg)
-    if (!pPos && !pNeg) {
-      grid.set(el.pos, { col: nextCol, row: nextRow }); placed.add(el.pos); nextRow++
-      grid.set(el.neg, { col: nextCol, row: nextRow }); placed.add(el.neg); nextRow++
-      nextCol++
-    } else if (!pPos) {
-      const r = pNeg ? pNeg.row : nextRow
-      grid.set(el.pos, { col: nextCol, row: r }); placed.add(el.pos); nextCol++
-      nextRow = Math.max(nextRow, r + 1)
-    } else if (!pNeg) {
-      const r = pPos ? pPos.row : nextRow
-      grid.set(el.neg, { col: nextCol, row: r }); placed.add(el.neg); nextCol++
-      nextRow = Math.max(nextRow, r + 1)
-    }
-  }
-
-  for (const el of elements) {
-    if (!placed.has(el.pos) && el.pos !== 0) {
-      grid.set(el.pos, { col: nextCol, row: nextRow }); placed.add(el.pos); nextRow++
-    }
-    if (!placed.has(el.neg) && el.neg !== 0) {
-      grid.set(el.neg, { col: nextCol, row: nextRow }); placed.add(el.neg); nextRow++
-    }
-  }
-
-  const entries = Array.from(grid.entries())
-  const maxCol = Math.max(0, ...entries.map(([_, p]) => p.col))
-  
-  const byCol = new Map<number, { id: number; col: number }[]>()
-  for (const [id, p] of entries) {
-    if (!byCol.has(p.col)) byCol.set(p.col, [])
-    byCol.get(p.col)!.push({ id, col: p.col })
-  }
-
-  const result: GridNode[] = []
-  for (const [c, items] of byCol) {
-    items.sort((a, b) => a.id - b.id)
-    if (c === 0 && items.some(it => it.id === 0)) {
-      for (const item of items) {
-        if (item.id === 0) result.push({ id: 0, col: 0, row: 0, x: CELL, y: 0 })
-      }
-      continue
-    }
-    for (let i = 0; i < items.length; i++) {
-      const r = i * 2 + 1
-      result.push({ id: items[i].id, col: c, row: r, x: (c + 1) * CELL, y: (r + 1) * CELL })
-    }
-  }
-
-  const maxRow = Math.max(0, ...result.map(n => n.row))
-  return { nodes: result.sort((a, b) => a.id - b.id), cols: maxCol + 1, rows: maxRow + 2 }
-}
