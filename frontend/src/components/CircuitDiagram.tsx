@@ -1,22 +1,27 @@
 interface Element {
   type: string; name: string; pos: number; neg: number; value: number
 }
-
-interface Node { id: number; x: number; y: number; output?: boolean }
+interface Node { id: number; x: number; y: number }
 
 export default function CircuitDiagram({ netlist, voltages }: { netlist: string; voltages?: number[] }) {
   const elements = parseNetlist(netlist)
   if (elements.length === 0) return null
 
-  const nodes = layoutHierarchical(elements)
-  const svgW = 500; const svgH = 320
+  const W = 600, H = 260
+  let nodes = layoutSmart(elements, W, H)
 
-  // Find max node number for display
-  const maxNode = Math.max(...nodes.map(n => n.id))
+  // Center the circuit vertically
+  const ys = nodes.map(n => n.y)
+  const minY = Math.min(...ys), maxY = Math.max(...ys)
+  const cy = (minY + maxY) / 2
+  const shift = H / 2 - cy
+  if (Math.abs(shift) > 5) {
+    nodes = nodes.map(n => ({ ...n, y: n.y + shift }))
+  }
 
   return (
     <div className="circuit-diagram">
-      <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" height={220} style={{background:'#0d1117'}}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{background:'#0d1117', display:'block'}}>
         {elements.map((el, i) => {
           const p1 = nodes.find(n => n.id === el.pos)
           const p2 = nodes.find(n => n.id === el.neg)
@@ -25,75 +30,67 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
           const dx = p2.x - p1.x, dy = p2.y - p1.y
           const angle = Math.atan2(dy, dx) * 180 / Math.PI
           const len = Math.sqrt(dx*dx + dy*dy)
-          const segLen = 30 // length of the component symbol
+          const halfSeg = 14 / len
 
-          // Draw wire segments (component in middle, wires on sides)
-          const midX = p1.x + dx * 0.5, midY = p1.y + dy * 0.5
-          const halfSeg = segLen / len / 2
           const wx1 = p1.x + dx * (0.5 - halfSeg), wy1 = p1.y + dy * (0.5 - halfSeg)
           const wx2 = p1.x + dx * (0.5 + halfSeg), wy2 = p1.y + dy * (0.5 + halfSeg)
 
-          // Determine component color
           const color = el.type === 'R' ? '#e6edf3' : el.type === 'C' ? '#58a6ff' : el.type === 'L' ? '#7ee787' : '#ffa657'
+          const symColor = el.type === 'R' ? '#e6edf3' : el.type === 'C' ? '#58a6ff' : el.type === 'L' ? '#7ee787' : '#ffa657'
 
           return (
             <g key={i}>
-              {/* Wires */}
               <line x1={p1.x} y1={p1.y} x2={wx1} y2={wy1} stroke="#30363d" strokeWidth={2} />
               <line x1={wx2} y1={wy2} x2={p2.x} y2={p2.y} stroke="#30363d" strokeWidth={2} />
+              {dot(p1.x, p1.y)}
+              {dot(p2.x, p2.y)}
 
-              {/* Node dots */}
-              {renderNodeDot(p1.x, p1.y)}
-              {renderNodeDot(p2.x, p2.y)}
-
-              {/* Component symbol */}
-              <g transform={`translate(${midX},${midY}) rotate(${angle})`}>
+              <g transform={`translate(${mx},${my}) rotate(${angle})`}>
                 {el.type === 'R' && (
                   <>
-                    <line x1={-segLen/2} y1={0} x2={-segLen/2+6} y2={0} stroke={color} strokeWidth={1.5} />
-                    {zigzag(segLen-12, 5, color)}
-                    <line x1={segLen/2-6} y1={0} x2={segLen/2} y2={0} stroke={color} strokeWidth={1.5} />
+                    <line x1={-18} y1={0} x2={-14} y2={0} stroke={color} strokeWidth={1.5} />
+                    <path d="M-14,0 L-10,-8 L-2,8 L6,-8 L14,0" fill="none" stroke={symColor} strokeWidth={2} />
+                    <line x1={14} y1={0} x2={18} y2={0} stroke={color} strokeWidth={1.5} />
                   </>
                 )}
                 {el.type === 'C' && (
                   <>
-                    <line x1={-segLen/2} y1={0} x2={-8} y2={0} stroke={color} strokeWidth={1.5} />
-                    <line x1={-8} y1={-7} x2={-8} y2={7} stroke={color} strokeWidth={2.5} />
-                    <line x1={8} y1={-7} x2={8} y2={7} stroke={color} strokeWidth={2.5} />
-                    <line x1={8} y1={0} x2={segLen/2} y2={0} stroke={color} strokeWidth={1.5} />
+                    <line x1={-18} y1={0} x2={-8} y2={0} stroke={color} strokeWidth={1.5} />
+                    <line x1={-8} y1={-8} x2={-8} y2={8} stroke={symColor} strokeWidth={2.5} />
+                    <line x1={8} y1={-8} x2={8} y2={8} stroke={symColor} strokeWidth={2.5} />
+                    <line x1={8} y1={0} x2={18} y2={0} stroke={color} strokeWidth={1.5} />
                   </>
                 )}
                 {el.type === 'L' && (
                   <>
-                    <line x1={-segLen/2} y1={0} x2={-segLen/2+6} y2={0} stroke={color} strokeWidth={1.5} />
+                    <line x1={-18} y1={0} x2={-14} y2={0} stroke={color} strokeWidth={1.5} />
                     {[0,1,2,3].map(j => (
-                      <path key={j} d={`M ${-segLen/2+8+j*7} ${-6} Q ${-segLen/2+12+j*7} 0 ${-segLen/2+8+j*7} ${6}`}
-                        fill="none" stroke={color} strokeWidth={2} />
+                      <path key={j} d={`M ${-12+j*8} ${-7} Q ${-8+j*8} 0 ${-12+j*8} ${7}`}
+                        fill="none" stroke={symColor} strokeWidth={2} />
                     ))}
-                    <line x1={segLen/2-6} y1={0} x2={segLen/2} y2={0} stroke={color} strokeWidth={1.5} />
+                    <line x1={14} y1={0} x2={18} y2={0} stroke={color} strokeWidth={1.5} />
                   </>
                 )}
                 {(el.type === 'V' || el.type === 'VAC') && (
                   <>
-                    <line x1={-segLen/2} y1={0} x2={-14} y2={0} stroke={color} strokeWidth={1.5} />
-                    <circle cx={0} cy={0} r={14} fill="none" stroke={color} strokeWidth={2} />
-                    <text x={0} y={1} textAnchor="middle" fill={color} fontSize={14} dominantBaseline="central" fontWeight="bold">
-                      {el.type === 'VAC' ? '~' : '+'}
+                    <line x1={-18} y1={0} x2={-12} y2={0} stroke={color} strokeWidth={1.5} />
+                    <circle cx={0} cy={0} r={12} fill="none" stroke={symColor} strokeWidth={2} />
+                    <text x={0} y={0} textAnchor="middle" fill={symColor} fontSize={13} dominantBaseline="central" fontWeight="bold">
+                      {el.type === 'VAC' ? '~' : 'V'}
                     </text>
-                    <line x1={14} y1={0} x2={segLen/2} y2={0} stroke={color} strokeWidth={1.5} />
+                    <line x1={12} y1={0} x2={18} y2={0} stroke={color} strokeWidth={1.5} />
                   </>
                 )}
                 {el.type === 'I' && (
                   <>
-                    <line x1={-segLen/2} y1={0} x2={-10} y2={0} stroke={color} strokeWidth={1.5} />
-                    <polygon points="-10,-7 10,0 -10,7" fill="none" stroke={color} strokeWidth={2} />
-                    <line x1={10} y1={0} x2={segLen/2} y2={0} stroke={color} strokeWidth={1.5} />
+                    <line x1={-18} y1={0} x2={-10} y2={0} stroke={color} strokeWidth={1.5} />
+                    <polygon points="-10,-6 10,0 -10,6" fill="none" stroke={symColor} strokeWidth={2} />
+                    <line x1={10} y1={0} x2={18} y2={0} stroke={color} strokeWidth={1.5} />
                   </>
                 )}
               </g>
 
-              {/* Label */}
-              <text x={midX} y={midY + (Math.abs(angle) > 45 ? 20 : -14)}
+              <text x={mx} y={my + (Math.abs(angle) > 60 ? 22 : -14)}
                 textAnchor="middle" fill="#8b949e" fontSize={10} fontFamily="monospace">
                 {el.name} {fmtVal(el.value)}
               </text>
@@ -101,41 +98,33 @@ export default function CircuitDiagram({ netlist, voltages }: { netlist: string;
           )
         })}
 
-        {/* Ground symbol */}
+        {/* Ground */}
         {nodes.filter(n => n.id === 0).map(n => (
           <g key="gnd">
-            <line x1={n.x-15} y1={n.y} x2={n.x+15} y2={n.y} stroke="#e6edf3" strokeWidth={2.5} />
+            {dot(n.x, n.y)}
+            <line x1={n.x-16} y1={n.y} x2={n.x+16} y2={n.y} stroke="#e6edf3" strokeWidth={2.5} />
             <line x1={n.x-10} y1={n.y+6} x2={n.x+10} y2={n.y+6} stroke="#e6edf3" strokeWidth={2} />
             <line x1={n.x-5} y1={n.y+12} x2={n.x+5} y2={n.y+12} stroke="#e6edf3" strokeWidth={1.5} />
           </g>
         ))}
 
-        {/* Non-zero node labels */}
-        {nodes.filter(n => n.id > 0).map(n => (
-          n.output && (
-            <text key={`vl-${n.id}`} x={n.x + 8} y={n.y - 8}
-              fill="#7ee787" fontSize={11} fontFamily="monospace">
-              {voltages && voltages[n.id-1] !== undefined ? voltages[n.id-1].toFixed(2)+'V' : `N${n.id}`}
+        {/* Voltage labels */}
+        {voltages && nodes.filter(n => n.id > 0).map(n => {
+          const v = voltages[n.id - 1]
+          return v !== undefined ? (
+            <text key={`v${n.id}`} x={n.x + 10} y={n.y - 8}
+              fill="#7ee787" fontSize={11} fontFamily="monospace" fontWeight="600">
+              {v.toFixed(2)}V
             </text>
-          )
-        ))}
+          ) : null
+        })}
       </svg>
     </div>
   )
 }
 
-function renderNodeDot(x: number, y: number) {
+function dot(x: number, y: number) {
   return <circle cx={x} cy={y} r={3.5} fill="#58a6ff" stroke="#0d1117" strokeWidth={1.5} />
-}
-
-function zigzag(w: number, peaks: number, color: string) {
-  const seg = w / (peaks * 2)
-  let d = `M ${-w/2} 0`
-  for (let i = 0; i < peaks; i++) {
-    d += ` L ${-w/2 + seg + i*seg*2} ${-7} L ${-w/2 + seg*2 + i*seg*2} ${7}`
-  }
-  d += ` L ${w/2} 0`
-  return <path d={d} fill="none" stroke={color} strokeWidth={2} />
 }
 
 function parseNetlist(netlist: string): Element[] {
@@ -160,87 +149,95 @@ function parseValue(s: string): number {
   return num
 }
 
-function layoutHierarchical(elements: Element[]): Node[] {
-  const placed = new Map<number, Node>()
+function layoutSmart(elements: Element[], W: number, H: number): Node[] {
+  const nodeMap = new Map<number, { x: number; y: number }>()
 
-  // Ground at bottom
-  placed.set(0, { id: 0, x: 250, y: 290, output: false })
-  if (placed.has(0)) placed.set(0, { id: 0, x: 250, y: 290, output: false })
+  // Ground at bottom center
+  nodeMap.set(0, { x: W / 2, y: H - 15 })
 
-  // Find connected components and voltage sources
-  const connections = new Map<number, Set<number>>()
-  const added = new Set<number>()
-
+  // Build adjacency
+  const adj = new Map<number, number[]>()
   for (const el of elements) {
-    if (!connections.has(el.pos)) connections.set(el.pos, new Set())
-    if (!connections.has(el.neg)) connections.set(el.neg, new Set())
-    connections.get(el.pos)!.add(el.neg)
-    connections.get(el.neg)!.add(el.pos)
+    if (!adj.has(el.pos)) adj.set(el.pos, [])
+    if (!adj.has(el.neg)) adj.set(el.neg, [])
+    adj.get(el.pos)!.push(el.neg)
+    adj.get(el.neg)!.push(el.pos)
   }
 
-  // BFS to find level for each node
-  const levels: number[] = []
-  const queue: number[] = []
-  
-  // Start from ground
-  if (connections.has(0)) {
-    levels[0] = 1  // ground level
-    queue.push(0)
+  // Find source (voltage source or highest degree node)
+  let source = -1
+  for (const el of elements) {
+    if (el.type === 'V' || el.type === 'VAC') {
+      source = el.pos !== 0 ? el.pos : el.neg
+      break
+    }
+  }
+  if (source === -1 || source === 0) {
+    for (const [id] of adj) {
+      if (id !== 0) { source = id; break }
+    }
   }
 
-  // BFS
-  while (queue.length > 0) {
-    const node = queue.shift()!
-    for (const neighbor of connections.get(node) || []) {
-      if (levels[neighbor] === undefined) {
-        const isGroundRelated = levels[node] === 0 || node === 0
-        levels[neighbor] = levels[node] + (isGroundRelated ? 2 : 1)
-        queue.push(neighbor)
+  // BFS levels
+  const level = new Map<number, number>()
+  if (source > 0) {
+    level.set(source, 0)
+    const q = [source]
+    while (q.length > 0) {
+      const cur = q.shift()!
+      for (const nb of adj.get(cur) || []) {
+        if (!level.has(nb) && nb !== 0) {
+          level.set(nb, level.get(cur)! + 1)
+          q.push(nb)
+        }
       }
     }
   }
 
-  // Assign level 0 to any unvisited nodes
-  for (const [node] of connections) {
-    if (levels[node] === undefined) {
-      levels[node] = 0
+  // Assign positions by level
+  const maxLevel = Math.max(0, ...level.values())
+  const perLevel = new Map<number, number[]>()
+  for (const [id, lv] of level) {
+    if (!perLevel.has(lv)) perLevel.set(lv, [])
+    perLevel.get(lv)!.push(id)
+  }
+
+  const topY = 35
+  const bottomY = H - 45
+  const yRange = bottomY - topY
+
+  for (const [lv, ids] of perLevel) {
+    const y = maxLevel > 0 ? topY + (lv / maxLevel) * yRange : topY + yRange / 2
+    ids.sort((a, b) => a - b)
+    for (let i = 0; i < ids.length; i++) {
+      const x = W * (i + 1) / (ids.length + 1)
+      nodeMap.set(ids[i], { x, y })
     }
   }
 
-  // Count nodes per level for horizontal spacing
-  const perLevel = new Map<number, number>()
-  const levelIndex = new Map<number, number>()
-  for (const [node] of connections) {
-    const lv = levels[node] || 0
-    perLevel.set(lv, (perLevel.get(lv) || 0) + 1)
-    levelIndex.set(node, (levelIndex.get(node) || 0))
+  // Source node on left if not already placed
+  if (source > 0 && nodeMap.has(source)) {
+    const p = nodeMap.get(source)!
+    nodeMap.set(source, { x: Math.min(p.x, W * 0.25), y: p.y })
   }
 
-  // Track horizontal position within each level
-  const levelCounters = new Map<number, number>()
-  for (const [node] of connections) {
-    const lv = levels[node] || 0
-    levelCounters.set(lv, (levelCounters.get(lv) || 0))
+  // Any unplaced nodes
+  for (const [id] of adj) {
+    if (!nodeMap.has(id)) {
+      nodeMap.set(id, { x: W * 0.5, y: H * 0.4 })
+    }
   }
 
-  const sortedNodes = Array.from(connections.keys()).sort((a, b) => {
-    const la = levels[a] || 0, lb = levels[b] || 0
-    if (la !== lb) return la - lb
-    return a - b
-  })
-
-  for (const node of sortedNodes) {
-    const lv = levels[node] || 0
-    const cnt = levelCounters.get(lv) || 0
-    const total = perLevel.get(lv) || 1
-    const x = (cnt + 1) / (total + 1) * 500
-    levelCounters.set(lv, cnt + 1)
-    const y = lv === 0 ? 100 : lv === 1 ? 290 : (lv === 2 ? 100 : 100 + lv * 60)
-    const isOutput = elements.some(e => e.neg === node && (e.type === 'R' || e.type === 'C' || e.type === 'L'))
-    placed.set(node, { id: node, x: Math.max(40, Math.min(460, x)), y, output: isOutput })
+  // Remove ground label by moving it to bottom
+  if (nodeMap.has(0)) {
+    nodeMap.set(0, { x: W / 2, y: H - 15 })
   }
 
-  return Array.from(placed.values()).sort((a, b) => a.id - b.id)
+  const result: Node[] = []
+  for (const [id, p] of nodeMap) {
+    result.push({ id, x: Math.max(25, Math.min(W - 25, p.x)), y: Math.max(10, Math.min(H - 20, p.y)) })
+  }
+  return result.sort((a, b) => a.id - b.id)
 }
 
 function fmtVal(v: number): string {
